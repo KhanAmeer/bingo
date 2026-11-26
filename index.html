@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BINGO — 6-Player Multiplayer & Custom Boards</title>
-<meta name="description" content="25-number turn-based Bingo for up to 6 players. Build your own board, take turns calling numbers, mark your card, and shout BINGO.">
+<title>BINGO — Multiplayer & Custom Boards</title>
+<meta name="description" content="25-number turn-based Bingo for 2 to 6 players. Build your own board, take turns calling numbers, mark your card, and shout BINGO.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
 <style>
 :root {
-  --bg: #000000;
+  --bg: #070b14;
   --panel: rgba(22, 31, 50, 0.78);
   --panel-solid: #161f32;
   --panel2: #23314d;
@@ -88,6 +88,7 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 .muted { color: var(--muted); }
 .small { font-size: 13.5px; line-height: 1.5; }
@@ -179,10 +180,10 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
 
 /* Grids */
 .row2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
 @media(max-width: 780px) {
-  .cols { grid-template-columns: 1fr; }
-  .row2 { grid-template-columns: 1fr; }
+  .cols, .row2, .row3 { grid-template-columns: 1fr; }
 }
 
 .topbar {
@@ -455,6 +456,11 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
   font-size: 14px;
   font-weight: 600;
 }
+.pl.empty-slot {
+  border-style: dashed;
+  color: #475569;
+  background: rgba(15, 23, 42, 0.35);
+}
 .pl small { color: var(--muted); font-weight: 500; }
 .pl .ready-dot {
   width: 9px; height: 9px; border-radius: 50%;
@@ -481,6 +487,24 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
   color: var(--muted);
   margin-bottom: 10px;
   text-align: center;
+}
+
+.cap-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.65);
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.cap-bar select {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 /* Modal & Toast */
@@ -527,11 +551,11 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
         <span data-l="O">O</span>
       </div>
     </div>
-    <span class="tag">Up to 6 players &middot; Custom boards &middot; Turn-based calling</span>
+    <span class="tag">2&ndash;6 Players &middot; Custom boards &middot; Turn-based calling</span>
   </header>
 
   <!-- MENU -->
-  <section id="menu" style="max-width: 580px; margin: 0 auto;">
+  <section id="menu" style="max-width: 620px; margin: 0 auto;">
     <div class="panel">
       <label for="name" style="margin-top:0">Player Name</label>
       <input id="name" maxlength="12" placeholder="Enter your nickname..." autocomplete="nickname">
@@ -544,18 +568,19 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
       </div>
       <div id="p-solo" class="tabp">
         <div class="row2">
-          <div><label>Computer opponents (max 5)</label><select id="s-bots"></select></div>
+          <div><label>Computer opponents</label><select id="s-bots"></select></div>
           <div><label>Lines needed to win</label><select id="s-lines"></select></div>
         </div>
         <p style="margin-bottom:0"><button class="primary" style="width:100%" id="go-solo">Create Board &amp; Play</button></p>
       </div>
       <div id="p-host" class="tabp" hidden>
-        <div class="row2">
-          <div><label>Computer opponents (max 5)</label><select id="h-bots"></select></div>
-          <div><label>Lines needed to win</label><select id="h-lines"></select></div>
+        <div class="row3">
+          <div><label>Room Size (Players)</label><select id="h-max"></select></div>
+          <div><label>Starting Bots</label><select id="h-bots"></select></div>
+          <div><label>Lines to Win</label><select id="h-lines"></select></div>
         </div>
-        <p class="muted small">Create a room for up to <b>6 players</b>. Everyone arranges their own 5&times;5 grid before the match begins.</p>
-        <p style="margin-bottom:0"><button class="primary" style="width:100%" id="go-host">Create 6-Player Room</button></p>
+        <p class="muted small">Choose your room size (<b>2 to 6 players</b>). Everyone arranges their own 5&times;5 grid before the match begins.</p>
+        <p style="margin-bottom:0"><button class="primary" style="width:100%" id="go-host">Create Room</button></p>
       </div>
       <div id="p-join" class="tabp" hidden>
         <label for="code">5-Character Room Code</label>
@@ -587,6 +612,12 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
         </div>
         <div class="panel">
           <div class="h"><span>Players <span id="l-count"></span></span> <span id="l-need"></span></div>
+
+          <div id="l-cap-bar" class="cap-bar" hidden>
+            <span class="small muted" style="font-weight:600">Room Capacity</span>
+            <select id="l-max"></select>
+          </div>
+
           <div id="l-players"></div>
           <div id="l-host" class="ctl" hidden>
             <button id="add-bot">+ Add Bot</button>
@@ -666,12 +697,11 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
 
 <!-- ===================== CORE GAME LOGIC ===================== -->
 <script id="core">
-const COLS = "BINGO", POOL = 25, DEFAULT_LINES = 5, MAX_PLAYERS = 6;
+const COLS = "BINGO", POOL = 25, DEFAULT_LINES = 5, MIN_PLAYERS = 2, MAX_LIMIT = 6;
 const RANGES = [[1,5],[6,10],[11,15],[16,20],[21,25]];
 const letter = n => COLS[Math.floor((n - 1) / 5)];
 const ball = n => letter(n) + "-" + n;
 
-// Multi-STUN + TURN config so 6 peers can negotiate WebRTC simultaneously across NATs/mobile data
 const PEER_CONFIG = {
   debug: 1,
   config: {
@@ -779,8 +809,9 @@ class BingoCard {
 }
 
 class BingoGame {
-  constructor(need = DEFAULT_LINES) {
+  constructor(need = DEFAULT_LINES, maxPlayers = MAX_LIMIT) {
     this.need = need;
+    this.maxPlayers = Math.min(MAX_LIMIT, Math.max(MIN_PLAYERS, maxPlayers));
     this.names = [];
     this.bots = new Set();
     this.customGrids = new Map();
@@ -791,8 +822,14 @@ class BingoGame {
     this.turnIdx = 0;
     this.state = "lobby";
   }
+  setMaxPlayers(newMax) {
+    const clamped = Math.min(MAX_LIMIT, Math.max(MIN_PLAYERS, Number(newMax) || MAX_LIMIT));
+    if (clamped < this.names.length) return false;
+    this.maxPlayers = clamped;
+    return true;
+  }
   addPlayer(name, bot = false) {
-    if (this.names.length >= MAX_PLAYERS) return false;
+    if (this.names.length >= this.maxPlayers) return false;
     this.names.push(name);
     if (bot) {
       this.bots.add(name);
@@ -878,7 +915,7 @@ const cleanName = s => (s || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(
 let mode = null;
 let me = "", room = "", game = null, peer = null, hostConn = null;
 let conns = new Map();
-let view = { card: null, called: [], last: null, turn: "", standings: [], need: DEFAULT_LINES, names: [], bots: [], ready: [], host: "", state: "lobby" };
+let view = { card: null, called: [], last: null, turn: "", standings: [], need: DEFAULT_LINES, maxPlayers: MAX_LIMIT, names: [], bots: [], ready: [], host: "", state: "lobby" };
 let botTimer = null, joinTimer = null, pingTimer = null, queue = Promise.resolve();
 
 let buildGrid = Array.from({ length: 5 }, () => Array(5).fill(0));
@@ -907,9 +944,21 @@ function speak(text) {
   speechSynthesis.cancel(); speechSynthesis.speak(u);
 }
 
-fill("s-bots", [1,2,3,4,5].map(n => [n, n]), 1);
-fill("h-bots", [0,1,2,3,4,5].map(n => [n, n]), 0);
-for (const id of ["s-lines", "h-lines"]) fill(id, Array.from({ length: 12 }, (_, i) => [i + 1, i + 1 + (i === 4 ? " (Standard BINGO)" : "")]), DEFAULT_LINES);
+fill("s-bots", [1,2,3,4,5].map(n => [n, `${n} Bot${n > 1 ? "s" : ""}`]), 1);
+fill("h-max", [2,3,4,5,6].map(n => [n, `${n} Players`]), 4);
+fill("l-max", [2,3,4,5,6].map(n => [n, `${n} Players`]), 4);
+for (const id of ["s-lines", "h-lines"]) fill(id, Array.from({ length: 12 }, (_, i) => [i + 1, i + 1 + (i === 4 ? " (Standard)" : "")]), DEFAULT_LINES);
+
+function syncHostBotOptions() {
+  const maxCap = Number($("h-max").value);
+  const maxBots = maxCap - 1;
+  const currentVal = Number($("h-bots").value) || 0;
+  const opts = Array.from({ length: maxBots + 1 }, (_, i) => [i, i === 0 ? "0 (Humans only)" : `${i} Bot${i > 1 ? "s" : ""}`]);
+  fill("h-bots", opts, Math.min(currentVal, maxBots));
+}
+$("h-max").onchange = syncHostBotOptions;
+syncHostBotOptions();
+
 try { $("name").value = localStorage.getItem("bingo-name") || ""; } catch (_) {}
 
 function tab(name) {
@@ -1004,10 +1053,12 @@ $("b-lock").onclick = () => {
 };
 
 function setupGame(prefix) {
-  game = new BingoGame(Number($(prefix + "-lines").value));
+  const botsCount = Number($(prefix + "-bots").value);
+  const maxCap = prefix === "h" ? Number($("h-max").value) : (botsCount + 1);
+  game = new BingoGame(Number($(prefix + "-lines").value), maxCap);
   game.addPlayer(me);
-  for (let i = 1; i <= Number($(prefix + "-bots").value); i++) {
-    if (game.names.length < MAX_PLAYERS) game.addPlayer("Bot-" + i, true);
+  for (let i = 1; i <= botsCount; i++) {
+    game.addPlayer("Bot-" + i, true);
   }
 }
 $("go-solo").onclick = () => {
@@ -1083,7 +1134,8 @@ function lobbyMsg() {
     bots: [...game.bots],
     ready: [...game.readyPlayers],
     host: me,
-    lines: game.need
+    lines: game.need,
+    maxPlayers: game.maxPlayers
   };
 }
 function broadcast(msg) {
@@ -1107,14 +1159,14 @@ function onGuestConnection(conn) {
       };
       if (game.state !== "lobby") return reject("A match is already in progress. Try again after this round.");
       if (!name || game.names.some(n => n.toLowerCase() === name.toLowerCase())) return reject("That name is empty or already taken.");
-      if (game.names.length >= MAX_PLAYERS) return reject(`This room is full (max ${MAX_PLAYERS} players).`);
+      if (game.names.length >= game.maxPlayers) return reject(`This room is full (${game.names.length}/${game.maxPlayers} players).`);
       conn._name = name;
       conns.set(name, conn);
       game.addPlayer(name);
       try { conn.send({ ...lobbyMsg(), type: "joined", name, room }); } catch (_) {}
       broadcastLobby();
       renderLobby();
-      toast(`${name} joined (${game.names.length}/${MAX_PLAYERS})`);
+      toast(`${name} joined (${game.names.length}/${game.maxPlayers})`);
     } else if (conn._name) {
       handlePlayerAction(conn._name, m);
     }
@@ -1193,8 +1245,20 @@ function syncLocalViewFromGame() {
   renderGame();
 }
 
+$("l-max").onchange = () => {
+  if (mode !== "host" || !game) return;
+  const newMax = Number($("l-max").value);
+  if (!game.setMaxPlayers(newMax)) {
+    toast(`Remove players/bots first — currently ${game.names.length} in room`);
+    $("l-max").value = String(game.maxPlayers);
+    return;
+  }
+  broadcastLobby();
+  renderLobby();
+};
+
 $("add-bot").onclick = () => {
-  if (game.names.length >= MAX_PLAYERS) return toast(`Room is full (max ${MAX_PLAYERS} players)`);
+  if (game.names.length >= game.maxPlayers) return toast(`Room is full (${game.maxPlayers}/${game.maxPlayers} players)`);
   let k = 1; while (game.names.includes("Bot-" + k)) k++;
   game.addPlayer("Bot-" + k, true); broadcastLobby(); renderLobby();
 };
@@ -1203,7 +1267,7 @@ $("rm-bot").onclick = () => {
   if (bots.length) { game.removePlayer(bots[bots.length - 1]); broadcastLobby(); renderLobby(); }
 };
 $("start").onclick = () => {
-  if (game.names.length < 2) return toast("You need at least 2 players. Invite friends or add a bot.");
+  if (game.names.length < MIN_PLAYERS) return toast("You need at least 2 players. Invite friends or add a bot.");
   if (!buildLocked) {
     if (isValidGrid(buildGrid)) {
       buildLocked = true;
@@ -1241,6 +1305,7 @@ function beginRound() {
       turn: game.currentTurnPlayer,
       standings: game.standings(),
       need: game.need,
+      maxPlayers: game.maxPlayers,
       names: [...game.names],
       bots: [...game.bots],
       ready: [...game.readyPlayers],
@@ -1380,7 +1445,7 @@ function onHostMsg(m) {
     case "error": toast(m.msg); leave(); break;
     case "joined":
       me = m.name; room = m.room;
-      Object.assign(view, { names: m.players, bots: m.bots, ready: m.ready || [], host: m.host, need: m.lines, state: "lobby" });
+      Object.assign(view, { names: m.players, bots: m.bots, ready: m.ready || [], host: m.host, need: m.lines, maxPlayers: m.maxPlayers || MAX_LIMIT, state: "lobby" });
       if (buildLocked) {
         try { hostConn.send({ type: "set_grid", grid: buildGrid }); } catch (_) {}
       }
@@ -1388,7 +1453,7 @@ function onHostMsg(m) {
     case "lobby":
       enqueue(() => {
         const wasPlaying = view.state === "playing" || view.state === "over";
-        Object.assign(view, { names: m.players, bots: m.bots, ready: m.ready || [], host: m.host, need: m.lines, state: "lobby" });
+        Object.assign(view, { names: m.players, bots: m.bots, ready: m.ready || [], host: m.host, need: m.lines, maxPlayers: m.maxPlayers || MAX_LIMIT, state: "lobby" });
         if (wasPlaying) resetBuilder();
         $("ov").hidden = true; renderLobby(); show("lobby");
       }); break;
@@ -1401,6 +1466,7 @@ function onHostMsg(m) {
           turn: m.turn,
           standings: m.names.map(n => [n, 0]),
           need: m.lines,
+          maxPlayers: view.maxPlayers,
           names: m.names,
           bots: view.bots,
           ready: view.ready,
@@ -1501,23 +1567,37 @@ function setBall(n) {
 }
 
 function renderLobby() {
-  const isHost = mode === "host" || mode === "solo";
-  const names = isHost ? game.names : view.names;
-  const bots = new Set(isHost ? [...game.bots] : view.bots);
-  const ready = new Set(isHost ? [...game.readyPlayers] : view.ready);
-  const host = isHost ? me : view.host;
-  const need = isHost ? game.need : view.need;
+  const isHostSide = mode === "host" || mode === "solo";
+  const names = isHostSide ? game.names : view.names;
+  const bots = new Set(isHostSide ? [...game.bots] : view.bots);
+  const ready = new Set(isHostSide ? [...game.readyPlayers] : view.ready);
+  const host = isHostSide ? me : view.host;
+  const need = isHostSide ? game.need : view.need;
+  const maxP = isHostSide ? game.maxPlayers : view.maxPlayers;
 
   $("l-code").textContent = room;
   $("l-link").textContent = shareLink();
-  $("l-count").textContent = `(${names.length}/${MAX_PLAYERS})`;
+  $("l-count").textContent = `(${names.length}/${maxP})`;
   $("l-need").textContent = `Goal: ${need} lines`;
-  $("l-players").innerHTML = names.map(n =>
+
+  // Room capacity dropdown in lobby (host only)
+  $("l-cap-bar").hidden = mode !== "host";
+  if (mode === "host") {
+    fill("l-max", [2,3,4,5,6].map(n => [n, `${n} Players${n < names.length ? " (too small)" : ""}`]), maxP);
+  }
+
+  // Render occupied slots + empty open seat indicators
+  const filledPills = names.map(n =>
     `<span class="pl">${ready.has(n) ? '<span class="ready-dot" title="Board locked"></span>' : ''}${esc(n)}${n === host && mode !== "solo" ? " <small>Host</small>" : ""}${bots.has(n) ? " <small>Bot</small>" : ""}${n === me ? " <small>You</small>" : ""}</span>`
-  ).join("");
-  $("l-host").hidden = !isHost;
-  $("l-guest").hidden = isHost;
-  $("add-bot").disabled = names.length >= MAX_PLAYERS;
+  );
+  const emptyCount = Math.max(0, maxP - names.length);
+  const emptyPills = Array.from({ length: emptyCount }, () => `<span class="pl empty-slot">Open seat</span>`);
+
+  $("l-players").innerHTML = filledPills.concat(emptyPills).join("");
+  $("l-host").hidden = !isHostSide;
+  $("l-guest").hidden = isHostSide;
+  $("add-bot").disabled = names.length >= maxP;
+  $("rm-bot").disabled = bots.size === 0;
 }
 $("copy-link").onclick = () => copy(shareLink(), "Invite link copied to clipboard");
 $("copy-code").onclick = () => copy(room, "Room code copied");
@@ -1587,7 +1667,7 @@ function renderGame() {
   bingoBtn.disabled = !canClaim;
   bingoBtn.classList.toggle("ready", canClaim);
 
-  $("stand").innerHTML = [...v.standings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6).map(([n, d]) =>
+  $("stand").innerHTML = [...v.standings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, MAX_LIMIT).map(([n, d]) =>
     `<div class="st"><span class="nm${n === me ? " me" : ""}">${esc(n)}</span><span class="bar">${Array.from({ length: v.need }, (_, i) => `<i class="${i < d ? "f" : ""}"></i>`).join("")}</span><span class="muted" style="text-align:right;font-weight:700">${Math.min(d, v.need)}/${v.need}</span></div>`
   ).join("");
 }
@@ -1598,7 +1678,7 @@ function leave() {
   else { try { peer && peer.destroy(); } catch (_) {} }
   for (const c of conns.values()) { try { setTimeout(() => c.close(), 250); } catch (_) {} }
   peer = null; hostConn = null; conns = new Map(); game = null; mode = null;
-  view = { card: null, called: [], last: null, turn: "", standings: [], need: DEFAULT_LINES, names: [], bots: [], ready: [], host: "", state: "lobby" };
+  view = { card: null, called: [], last: null, turn: "", standings: [], need: DEFAULT_LINES, maxPlayers: MAX_LIMIT, names: [], bots: [], ready: [], host: "", state: "lobby" };
   queue = Promise.resolve(); $("ov").hidden = true; show("menu");
 }
 for (const id of ["leave-l", "leave-g", "ov-leave"]) $(id).onclick = leave;
