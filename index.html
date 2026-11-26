@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bingo - play with friends</title>
+<meta name="description" content="25-number Bingo with a random number roller. Create a room and share the code or link.">
+<!-- PeerJS: peer-to-peer rooms with no server of your own (works on GitHub Pages) -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{--bg:#0f172a;--panel:#1e293b;--panel2:#2b3a52;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--good:#22c55e;--gold:#fbbf24;--bad:#ef4444}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+.wrap{max-width:980px;margin:0 auto;padding:16px}
+header{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+h1{margin:0;font-size:34px;letter-spacing:6px;background:linear-gradient(90deg,#3b82f6,#ef4444,#f59e0b,#22c55e);-webkit-background-clip:text;background-clip:text;color:transparent}
+.tag{color:var(--muted);font-size:14px}
+.panel{background:var(--panel);border-radius:16px;padding:16px;margin-bottom:14px}
+.h{font-weight:600;margin-bottom:10px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1px}
+.muted{color:var(--muted)}.small{font-size:13px}.center{text-align:center}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select{width:100%;padding:11px 12px;border-radius:10px;border:1px solid #3b4b66;background:#0f172a;color:var(--text);font-size:16px}
+input#code{text-transform:uppercase;letter-spacing:6px;text-align:center;font-size:22px}
+button{padding:11px 16px;border-radius:10px;border:0;background:var(--panel2);color:var(--text);font-size:15px;cursor:pointer;font-weight:600}
+button:hover{filter:brightness(1.15)}button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);color:#06283d}
+button.ghost{background:transparent;border:1px solid #3b4b66}
+.tabs{display:flex;gap:6px;margin-bottom:6px}.tabs button{flex:1}.tabs button.on{background:var(--accent);color:#06283d}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.cols{grid-template-columns:1fr}.row3{grid-template-columns:1fr}}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.ctl{display:flex;gap:8px;margin-top:12px;justify-content:center;flex-wrap:wrap}.ctl select{width:auto}
+/* ball */
+.ball{width:150px;height:150px;border-radius:50%;margin:4px auto 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 32% 28%,#fff9,#0000 38%),var(--bc,#475569);box-shadow:0 8px 26px #0008, inset -6px -10px 18px #0004;color:#fff;font-weight:800;transition:transform .15s}
+.ball span:first-child{font-size:30px;line-height:1;opacity:.9}.ball span:last-child{font-size:64px;line-height:1}
+.ball.rolling{animation:shake .14s infinite}
+@keyframes shake{0%{transform:translate(0,0) rotate(0)}25%{transform:translate(3px,-4px) rotate(4deg)}50%{transform:translate(-3px,3px) rotate(-4deg)}100%{transform:translate(0,0) rotate(0)}}
+[data-l="B"]{--bc:#3b82f6}[data-l="I"]{--bc:#ef4444}[data-l="N"]{--bc:#64748b}[data-l="G"]{--bc:#22c55e}[data-l="O"]{--bc:#f59e0b}
+.chips{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;min-height:28px}
+.chip{background:var(--bc,#475569);padding:3px 10px;border-radius:20px;font-size:13px;font-weight:700}
+/* board */
+.brow{display:flex;align-items:center;gap:4px;margin-bottom:4px}
+.bl{width:26px;height:26px;border-radius:50%;background:var(--bc);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none}
+.bn{flex:1;text-align:center;padding:6px 0;border-radius:8px;background:#0f172a;color:#475569;font-weight:600}
+.bn.on{background:#14532d;color:#bbf7d0}.bn.last{background:var(--gold);color:#451a03}
+/* card */
+.card{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.ch{text-align:center;font-weight:800;padding:4px 0;border-radius:8px;background:var(--bc)}
+.cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:clamp(20px,5vw,30px);font-weight:700;border-radius:12px;background:#0f172a;border:2px solid #334155}
+.cell.on{background:var(--good);color:#052e16;border-color:#16a34a}
+.cell.last{background:var(--gold);color:#451a03;border-color:#f59e0b;animation:pop .6s}
+.cell.line{box-shadow:0 0 0 3px var(--gold)}
+@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
+/* standings */
+.st{display:grid;grid-template-columns:100px 1fr 70px;gap:8px;align-items:center;margin-bottom:6px;font-size:14px}
+.st .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.st .me{color:var(--accent);font-weight:700}
+.bar{display:flex;gap:3px}.bar i{flex:1;height:10px;border-radius:5px;background:#0f172a}.bar i.f{background:var(--good)}
+.pl{display:inline-flex;gap:6px;align-items:center;background:var(--panel2);padding:6px 12px;border-radius:20px;margin:0 6px 6px 0}
+.pl small{color:var(--muted)}
+.code{font-size:46px;letter-spacing:10px;font-weight:800;text-align:center;color:var(--gold);margin:6px 0}
+.link{word-break:break-all;background:#0f172a;border-radius:10px;padding:10px;font-size:13px;color:var(--muted);margin-bottom:10px}
+.ov{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.ov .box{background:var(--panel);border-radius:20px;padding:26px;max-width:420px;width:100%;text-align:center}
+.ov h2{margin:0 0 12px;font-size:30px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#020617;border:1px solid #334155;padding:10px 18px;border-radius:12px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:20;max-width:90%;text-align:center}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<noscript>This game needs JavaScript.</noscript>
+<div class="wrap">
+  <header><h1>BINGO</h1><span class="tag">25 numbers &middot; first to complete the target number of lines wins</span></header>
+
+  <!-- MENU -->
+  <section id="menu">
+    <div class="panel">
+      <label for="name" style="margin-top:0">Your name</label>
+      <input id="name" maxlength="12" placeholder="e.g. Meera" autocomplete="nickname">
+    </div>
+    <div class="panel">
+      <div class="tabs">
+        <button data-tab="solo" class="on">Solo</button>
+        <button data-tab="host">Host a room</button>
+        <button data-tab="join">Join a room</button>
+      </div>
+      <div id="p-solo" class="tabp">
+        <div class="row3">
+          <div><label>Computer players</label><select id="s-bots"></select></div>
+          <div><label>Lines to win</label><select id="s-lines"></select></div>
+          <div><label>Draw speed</label><select id="s-speed"></select></div>
+        </div>
+        <p><button class="primary" id="go-solo">Play</button></p>
+      </div>
+      <div id="p-host" class="tabp" hidden>
+        <div class="row3">
+          <div><label>Computer players</label><select id="h-bots"></select></div>
+          <div><label>Lines to win</label><select id="h-lines"></select></div>
+          <div><label>Draw speed</label><select id="h-speed"></select></div>
+        </div>
+        <p class="muted small">You get a room code and a link. Friends open the link (or type the code) on their own phones. Keep this tab open while you play: you are the host.</p>
+        <p><button class="primary" id="go-host">Create room</button></p>
+      </div>
+      <div id="p-join" class="tabp" hidden>
+        <label for="code">Room code</label>
+        <input id="code" maxlength="5" placeholder="ABCDE" autocomplete="off" autocapitalize="characters">
+        <p><button class="primary" id="go-join">Join room</button></p>
+      </div>
+    </div>
+    <div class="panel small muted">
+      <b>How it works:</b> every card holds the numbers 1&ndash;25 in a random order. The roller draws each number once (Fisher-Yates shuffle) and marks it on every card automatically.
+      Completing a row, column or diagonal counts as one line; the first player to reach the line target shouts BINGO.
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="lobby" hidden>
+    <div class="panel">
+      <div class="h">Room code</div>
+      <div class="code" id="l-code"></div>
+      <div class="link" id="l-link"></div>
+      <div class="ctl">
+        <button id="copy-link" class="primary">Copy invite link</button>
+        <button id="copy-code">Copy code</button>
+        <button id="share" hidden>Share</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="h">Players <span id="l-count"></span> &middot; <span id="l-need"></span></div>
+      <div id="l-players"></div>
+      <div id="l-host" class="ctl" hidden>
+        <button id="add-bot">+ Computer player</button>
+        <button id="rm-bot">&minus; Computer player</button>
+        <button id="start" class="primary">Start game</button>
+      </div>
+      <p id="l-guest" class="muted" hidden>Waiting for the host to start the game&hellip;</p>
+    </div>
+    <button id="leave-l" class="ghost">Leave room</button>
+  </section>
+
+  <!-- GAME -->
+  <section id="game" hidden>
+    <div class="topbar">
+      <div><b id="g-room"></b> &middot; <span id="g-need" class="muted"></span></div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="voice" style="width:auto"> Announce</label>
+        <button id="leave-g" class="ghost">Leave</button>
+      </div>
+    </div>
+    <div class="cols">
+      <div>
+        <div class="panel center">
+          <div id="ball" class="ball" data-l="?"><span id="ball-l">?</span><span id="ball-n">&ndash;</span></div>
+          <div id="prev" class="chips"></div>
+          <div class="muted small" id="count" style="margin-top:6px"></div>
+          <div id="hostctl" class="ctl" hidden>
+            <button id="draw-now" class="primary">Draw number</button>
+            <button id="pause">Pause</button>
+            <select id="g-speed"></select>
+          </div>
+        </div>
+        <div class="panel"><div class="h">Number board</div><div id="board"></div></div>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="h">Your card</div>
+          <div id="card" class="card"></div>
+          <p id="lines" class="small" style="margin-bottom:0"></p>
+        </div>
+        <div class="panel"><div class="h">Standings</div><div id="stand"></div></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="ov" class="ov" hidden>
+  <div class="box">
+    <h2 id="ov-title"></h2>
+    <div id="ov-body"></div>
+    <div class="ctl" style="margin-top:18px">
+      <button id="again" class="primary">Play again</button>
+      <button id="ov-leave" class="ghost">Leave</button>
+    </div>
+    <p id="ov-wait" class="muted small" hidden>Waiting for the host to start another round&hellip;</p>
+  </div>
+</div>
+<div id="toast"></div>
+
+<!-- ===================== CORE GAME LOGIC ===================== -->
+<script id="core">
+/* Data structures:
+   Card grid (5x5 array) | Position map (number -> [row,col]) |
+   Line counters rows[5], cols[5], diags[2] | Call pool 1..25 (Fisher-Yates) |
+   Bonus: 25-bit bitmask + 12 precomputed win masks (used to verify the counters). */
+const COLS = "BINGO", POOL = 25, DEFAULT_LINES = 5, MAX_PLAYERS = 20;
+const RANGES = [[1,5],[6,10],[11,15],[16,20],[21,25]];
+const letter = n => COLS[Math.floor((n - 1) / 5)];
+const ball = n => letter(n) + "-" + n;
+
+function randInt(max) {                       // unbiased random integer in [0, max]
+  const buf = new Uint32Array(1), span = max + 1;
+  const lim = Math.floor(4294967296 / span) * span;
+  do { crypto.getRandomValues(buf); } while (buf[0] >= lim);
+  return buf[0] % span;
+}
+function fisherYates(arr) {                   // iterate backwards, swap with random j in [0, i]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randInt(i);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+const WIN_MASKS = (() => {
+  const m = [];
+  for (let r = 0; r < 5; r++) { let x = 0; for (let c = 0; c < 5; c++) x |= 1 << (r * 5 + c); m.push(x); }
+  for (let c = 0; c < 5; c++) { let x = 0; for (let r = 0; r < 5; r++) x |= 1 << (r * 5 + c); m.push(x); }
+  let d1 = 0, d2 = 0;
+  for (let i = 0; i < 5; i++) { d1 |= 1 << (i * 5 + i); d2 |= 1 << (i * 5 + (4 - i)); }
+  m.push(d1, d2);
+  return m;                                   // 0-4 rows, 5-9 columns, 10 "\", 11 "/"
+})();
+const lineName = i => i < 5 ? "Row " + (i + 1) : i < 10 ? "Column " + COLS[i - 5] : i === 10 ? "Diagonal \\" : "Diagonal /";
+
+class BingoCard {
+  constructor(grid, need = DEFAULT_LINES) {
+    this.need = need;
+    this.grid = grid || BingoCard.generate();
+    this.pos = new Map();
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) this.pos.set(this.grid[r][c], [r, c]);
+    this.marked = new Set();
+    this.rows = [0, 0, 0, 0, 0]; this.cols = [0, 0, 0, 0, 0]; this.diags = [0, 0];
+    this.mask = 0;
+    this.completedIdx = [];
+  }
+  static generate() {
+    const nums = fisherYates(Array.from({ length: POOL }, (_, i) => i + 1));
+    return Array.from({ length: 5 }, (_, r) => nums.slice(r * 5, r * 5 + 5));
+  }
+  /* Look up the number, update only the counters it touches, return newly completed lines. */
+  mark(n) {
+    const p = this.pos.get(n);
+    if (!p || this.marked.has(n)) return [];
+    const [r, c] = p;
+    this.marked.add(n);
+    this.mask |= 1 << (r * 5 + c);
+    this.rows[r]++; this.cols[c]++;
+    if (r === c) this.diags[0]++;
+    if (r + c === 4) this.diags[1]++;
+    const done = [];
+    if (this.rows[r] === 5) done.push(r);
+    if (this.cols[c] === 5) done.push(5 + c);
+    if (r === c && this.diags[0] === 5) done.push(10);
+    if (r + c === 4 && this.diags[1] === 5) done.push(11);
+    this.completedIdx.push(...done);
+    return done.map(lineName);
+  }
+  get linesDone() { return this.completedIdx.length; }
+  get completed() { return this.completedIdx.map(lineName); }
+  hasBingo() { return this.linesDone >= this.need; }
+  highlightMask() { let m = 0; for (const i of this.completedIdx) m |= WIN_MASKS[i]; return m; }
+  bitmaskLines() { return WIN_MASKS.filter(m => (this.mask & m) === m).length; }
+  scanLines() {                               // slow full scan, verification only
+    const ok = (r, c) => this.marked.has(this.grid[r][c]);
+    let n = 0;
+    for (let r = 0; r < 5; r++) if ([0,1,2,3,4].every(c => ok(r, c))) n++;
+    for (let c = 0; c < 5; c++) if ([0,1,2,3,4].every(r => ok(r, c))) n++;
+    if ([0,1,2,3,4].every(i => ok(i, i))) n++;
+    if ([0,1,2,3,4].every(i => ok(i, 4 - i))) n++;
+    return n;
+  }
+}
+class NumberRoller {
+  constructor() { this.pool = fisherYates(Array.from({ length: POOL }, (_, i) => i + 1)); this.idx = 0; }
+  draw() { return this.idx < this.pool.length ? this.pool[this.idx++] : null; }
+}
+class BingoGame {
+  constructor(need = DEFAULT_LINES) {
+    this.need = need; this.names = []; this.bots = new Set();
+    this.cards = new Map(); this.roller = null; this.called = []; this.state = "lobby";
+  }
+  addPlayer(name, bot = false) { this.names.push(name); if (bot) this.bots.add(name); }
+  removePlayer(name) { this.names = this.names.filter(n => n !== name); this.bots.delete(name); }
+  start() {
+    this.cards = new Map(this.names.map(n => [n, new BingoCard(null, this.need)]));
+    this.roller = new NumberRoller(); this.called = []; this.state = "playing";
+  }
+  draw() {                                    // O(P): one O(1) lookup per player card
+    const n = this.roller.draw();
+    if (n === null) { this.state = "over"; return { n: null, winners: [] }; }
+    this.called.push(n);
+    const winners = [];
+    for (const [name, card] of this.cards) {
+      if (!card.pos.has(n)) continue;
+      const lines = card.mark(n);
+      if (lines.length && card.hasBingo()) winners.push({ name, lines: card.completed });
+    }
+    if (winners.length) this.state = "over";
+    return { n, winners };
+  }
+  standings() { return [...this.cards].map(([n, c]) => [n, c.linesDone]); }
+  reset() { this.cards = new Map(); this.roller = null; this.called = []; this.state = "lobby"; }
+}
+if (typeof module !== "undefined") module.exports = { BingoCard, NumberRoller, BingoGame, WIN_MASKS, fisherYates };
+</script>
+
+<!-- ===================== APP / UI / ROOMS ===================== -->
+<script>
+const ROOM_PREFIX = "kbingo25-";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const cleanName = s => (s || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 12);
+
+let mode = null;                 // "solo" | "host" | "guest"
+let me = "", room = "", game = null, peer = null, hostConn = null;
+let conns = new Map();           // host: name -> DataConnection
+let view = { card: null, called: [], last: null, standings: [], need: DEFAULT_LINES, names: [], bots: [], host: "", state: "lobby" };
+let drawTimer = null, joinTimer = null, paused = false, interval = 5, queue = Promise.resolve();
+
+/* ---------- small helpers ---------- */
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3200);
+}
+function show(id) { for (const s of ["menu", "lobby", "game"]) $(s).hidden = s !== id; }
+function enqueue(fn) { queue = queue.then(fn).catch(console.error); }
+function fill(id, opts, val) { $(id).innerHTML = opts.map(([v, t]) => `<option value="${v}"${String(v) === String(val) ? " selected" : ""}>${t}</option>`).join(""); }
+function shareLink() { return location.href.split("#")[0].split("?")[0] + "?room=" + room; }
+function makeCode() {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = "";
+  for (let i = 0; i < 5; i++) s += A[randInt(A.length - 1)];
+  return s;
+}
+async function copy(text, msg) {
+  try { await navigator.clipboard.writeText(text); toast(msg); }
+  catch (_) { prompt("Copy this:", text); }
+}
+function speak(n) {
+  if (!$("voice").checked || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(`${letter(n)}. ${n}`); u.rate = .9;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+
+/* ---------- menu ---------- */
+fill("s-bots", [1,2,3,4,5,6,7,8,9,10].map(n => [n, n]), 2);
+fill("h-bots", [0,1,2,3,4,5,6,7,8,9,10].map(n => [n, n]), 0);
+for (const id of ["s-lines", "h-lines"]) fill(id, Array.from({ length: 12 }, (_, i) => [i + 1, i + 1 + (i === 4 ? " (standard)" : "")]), DEFAULT_LINES);
+const SPEEDS = [[0, "Manual"], [3, "Fast (3 s)"], [5, "Normal (5 s)"], [8, "Slow (8 s)"]];
+for (const id of ["s-speed", "h-speed", "g-speed"]) fill(id, SPEEDS, 5);
+try { $("name").value = localStorage.getItem("bingo-name") || ""; } catch (_) {}
+function tab(name) {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  for (const t of ["solo", "host", "join"]) $("p-" + t).hidden = t !== name;
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => tab(b.dataset.tab));
+const urlRoom = new URLSearchParams(location.search).get("room");
+if (urlRoom) { tab("join"); $("code").value = urlRoom.toUpperCase().slice(0, 5); }
+if (!("share" in navigator)) $("share").hidden = true; else $("share").hidden = false;
+
+function getName() {
+  const n = cleanName($("name").value);
+  if (!n) { toast("Enter your name first"); $("name").focus(); return null; }
+  try { localStorage.setItem("bingo-name", n); } catch (_) {}
+  return n;
+}
+
+/* ---------- starting games ---------- */
+function setupGame(prefix) {
+  game = new BingoGame(Number($(prefix + "-lines").value));
+  game.addPlayer(me);
+  for (let i = 1; i <= Number($(prefix + "-bots").value); i++) game.addPlayer("Bot-" + i, true);
+  interval = Number($(prefix + "-speed").value);
+  $("g-speed").value = String(interval);
+}
+$("go-solo").onclick = () => {
+  const n = getName(); if (!n) return;
+  me = n; mode = "solo"; setupGame("s"); beginRound();
+};
+$("go-host").onclick = () => {
+  const n = getName(); if (!n) return;
+  if (typeof Peer === "undefined") return toast("Online rooms need an internet connection (PeerJS did not load).");
+  me = n; mode = "host"; setupGame("h"); openHostPeer(0);
+};
+$("go-join").onclick = () => {
+  const n = getName(); if (!n) return;
+  const code = $("code").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (code.length !== 5) return toast("Enter the 5-character room code");
+  if (typeof Peer === "undefined") return toast("Online rooms need an internet connection (PeerJS did not load).");
+  me = n; mode = "guest"; room = code; joinRoom(code);
+};
+
+/* ---------- HOST side ---------- */
+function openHostPeer(attempt) {
+  room = makeCode();
+  peer = new Peer(ROOM_PREFIX + room);
+  peer.on("open", () => { show("lobby"); renderLobby(); });
+  peer.on("connection", onGuestConnection);
+  peer.on("disconnected", () => { try { peer.reconnect(); } catch (_) {} });
+  peer.on("error", e => {
+    if (e.type === "unavailable-id" && attempt < 5) { try { peer.destroy(); } catch (_) {} openHostPeer(attempt + 1); }
+    else { toast("Connection problem: " + e.type); if (mode === "host" && $("lobby").hidden && $("game").hidden) leave(); }
+  });
+}
+function lobbyMsg() { return { type: "lobby", players: [...game.names], bots: [...game.bots], host: me, lines: game.need }; }
+function broadcast(msg) { for (const c of conns.values()) { try { c.send(msg); } catch (_) {} } }
+function broadcastLobby() { broadcast(lobbyMsg()); }
+
+function onGuestConnection(conn) {
+  conn.on("data", m => {
+    if (!m || m.type !== "join" || conn._name || !game) return;
+    const name = cleanName(m.name);
+    const reject = text => { conn.send({ type: "error", msg: text }); setTimeout(() => conn.close(), 400); };
+    if (game.state !== "lobby") return reject("A game is already in progress. Try again after this round.");
+    if (!name || game.names.some(n => n.toLowerCase() === name.toLowerCase())) return reject("That name is empty or already taken in this room.");
+    if (game.names.length >= MAX_PLAYERS) return reject("This room is full.");
+    conn._name = name; conns.set(name, conn); game.addPlayer(name);
+    conn.send({ ...lobbyMsg(), type: "joined", name, room });
+    broadcastLobby(); renderLobby(); toast(name + " joined");
+  });
+  conn.on("close", () => {
+    if (!conn._name || conns.get(conn._name) !== conn) return;
+    conns.delete(conn._name);
+    if (game && game.state === "lobby") { game.removePlayer(conn._name); broadcastLobby(); renderLobby(); }
+    else toast(conn._name + " disconnected");
+  });
+}
+
+$("add-bot").onclick = () => {
+  if (game.names.length >= MAX_PLAYERS) return;
+  let k = 1; while (game.names.includes("Bot-" + k)) k++;
+  game.addPlayer("Bot-" + k, true); broadcastLobby(); renderLobby();
+};
+$("rm-bot").onclick = () => {
+  const bots = game.names.filter(n => game.bots.has(n));
+  if (bots.length) { game.removePlayer(bots[bots.length - 1]); broadcastLobby(); renderLobby(); }
+};
+$("start").onclick = () => {
+  if (game.names.length < 2) return toast("You need at least 2 players. Invite friends or add a computer player.");
+  beginRound();
+};
+
+function beginRound() {                       // host + solo
+  game.start();
+  paused = false; $("pause").textContent = "Pause";
+  for (const [name, c] of conns) {
+    try { c.send({ type: "start", grid: game.cards.get(name).grid, lines: game.need, names: [...game.names] }); } catch (_) {}
+  }
+  enqueue(() => {
+    view = { card: game.cards.get(me), called: [], last: null, standings: game.standings(), need: game.need,
+             names: [...game.names], bots: [...game.bots], host: me, state: "playing" };
+    $("ov").hidden = true; show("game"); setBall(null); renderGame();
+  });
+  scheduleNext(true);
+}
+function scheduleNext(first) {
+  clearTimeout(drawTimer);
+  if (!game || game.state !== "playing" || paused || interval <= 0) return;
+  drawTimer = setTimeout(hostDraw, (first ? Math.max(interval, 3) : interval) * 1000);
+}
+function hostDraw() {
+  clearTimeout(drawTimer);
+  if (!game || game.state !== "playing" || (mode !== "host" && mode !== "solo")) return;
+  const { n, winners } = game.draw();
+  if (n === null) return;
+  const msg = { type: "draw", number: n, called: [...game.called], standings: game.standings() };
+  broadcast(msg); enqueue(() => applyDraw(msg));
+  if (winners.length) {
+    const b = { type: "bingo", number: n, winners };
+    broadcast(b); enqueue(() => applyBingo(b));
+  } else scheduleNext();
+}
+$("draw-now").onclick = hostDraw;
+$("pause").onclick = () => {
+  paused = !paused; $("pause").textContent = paused ? "Resume" : "Pause";
+  if (paused) clearTimeout(drawTimer); else scheduleNext();
+};
+$("g-speed").onchange = () => { interval = Number($("g-speed").value); scheduleNext(); };
+
+function playAgain() {
+  $("ov").hidden = true;
+  if (mode === "solo") { game.reset(); beginRound(); return; }
+  game.reset();
+  game.names = game.names.filter(n => n === me || game.bots.has(n) || conns.has(n));
+  broadcastLobby(); renderLobby(); show("lobby");
+}
+$("again").onclick = playAgain;
+
+/* ---------- GUEST side ---------- */
+function joinRoom(code) {
+  peer = new Peer();
+  joinTimer = setTimeout(() => { toast("Could not reach the room. Check the code and try again."); leave(); }, 15000);
+  peer.on("open", () => {
+    hostConn = peer.connect(ROOM_PREFIX + code, { reliable: true });
+    hostConn.on("open", () => { clearTimeout(joinTimer); hostConn.send({ type: "join", name: me }); });
+    hostConn.on("data", onHostMsg);
+    hostConn.on("close", () => { if (mode === "guest") { toast("Disconnected from the host."); leave(); } });
+  });
+  peer.on("error", e => {
+    toast(e.type === "peer-unavailable" ? "Room not found. Check the code, or ask the host to open it." : "Connection problem: " + e.type);
+    if (e.type === "peer-unavailable" || !view.names.length) leave();
+  });
+}
+function onHostMsg(m) {
+  if (!m) return;
+  switch (m.type) {
+    case "error": toast(m.msg); leave(); break;
+    case "joined":
+      me = m.name; room = m.room;
+      Object.assign(view, { names: m.players, bots: m.bots, host: m.host, need: m.lines, state: "lobby" });
+      renderLobby(); show("lobby"); break;
+    case "lobby":
+      enqueue(() => {
+        Object.assign(view, { names: m.players, bots: m.bots, host: m.host, need: m.lines, state: "lobby" });
+        $("ov").hidden = true; renderLobby(); show("lobby");
+      }); break;
+    case "start":
+      enqueue(() => {
+        view = { card: new BingoCard(m.grid, m.lines), called: [], last: null, standings: m.names.map(n => [n, 0]),
+                 need: m.lines, names: m.names, bots: view.bots, host: view.host, state: "playing" };
+        $("ov").hidden = true; show("game"); setBall(null); renderGame();
+      }); break;
+    case "draw": enqueue(() => applyDraw(m)); break;
+    case "bingo": enqueue(() => applyBingo(m)); break;
+    case "closed": toast("The host closed the room."); leave(); break;
+  }
+}
+
+/* ---------- applying events (same code for host, solo and guests) ---------- */
+function applyDraw(m) {
+  view.called = m.called; view.standings = m.standings;
+  for (const n of m.called) view.card.mark(n);          // idempotent
+  return animateBall(m.number).then(() => { view.last = m.number; renderGame(); speak(m.number); });
+}
+function applyBingo(m) {
+  view.state = "over"; clearTimeout(drawTimer); renderGame();
+  const mine = m.winners.some(w => w.name === me);
+  $("ov-title").textContent = mine ? "\u{1F389} BINGO! You win!" : "BINGO!";
+  $("ov-body").innerHTML = m.winners.map(w =>
+    `<div style="margin:8px 0"><b style="font-size:20px">${esc(w.name)}</b>${w.name === me ? " (you)" : ""}<div class="small muted">${esc(w.lines.join(", "))}</div></div>`).join("");
+  $("again").hidden = mode === "guest"; $("ov-wait").hidden = mode !== "guest";
+  $("ov").hidden = false;
+}
+function setBall(n) {
+  const el = $("ball");
+  el.dataset.l = n ? letter(n) : "?";
+  $("ball-l").textContent = n ? letter(n) : "?";
+  $("ball-n").textContent = n || "\u2013";
+}
+function animateBall(final) {
+  const el = $("ball"); el.classList.add("rolling");
+  return new Promise(res => {
+    let k = 0;
+    const t = setInterval(() => {
+      setBall(1 + randInt(POOL - 1));
+      if (++k >= 12) { clearInterval(t); el.classList.remove("rolling"); setBall(final); res(); }
+    }, 70);
+  });
+}
+
+/* ---------- rendering ---------- */
+function renderLobby() {
+  const isHost = mode === "host";
+  const names = isHost ? game.names : view.names, bots = new Set(isHost ? [...game.bots] : view.bots);
+  const host = isHost ? me : view.host, need = isHost ? game.need : view.need;
+  $("l-code").textContent = room; $("l-link").textContent = shareLink();
+  $("l-count").textContent = `(${names.length})`; $("l-need").textContent = `First to ${need} lines`;
+  $("l-players").innerHTML = names.map(n =>
+    `<span class="pl">${esc(n)}${n === host ? " <small>host</small>" : ""}${bots.has(n) ? " <small>computer</small>" : ""}${n === me ? " <small>you</small>" : ""}</span>`).join("");
+  $("l-host").hidden = !isHost; $("l-guest").hidden = isHost;
+}
+$("copy-link").onclick = () => copy(shareLink(), "Invite link copied");
+$("copy-code").onclick = () => copy(room, "Room code copied");
+$("share").onclick = () => navigator.share({ title: "Bingo", text: "Join my Bingo room: " + room, url: shareLink() }).catch(() => {});
+
+function renderGame() {
+  const v = view, c = v.card; if (!c) return;
+  $("g-room").textContent = mode === "solo" ? "Solo game" : "Room " + room;
+  $("g-need").textContent = `First to ${v.need} lines`;
+  if (v.last) setBall(v.last);
+  $("prev").innerHTML = v.called.slice(0, -1).slice(-5).reverse().map(n => `<span class="chip" data-l="${letter(n)}">${ball(n)}</span>`).join("");
+  $("count").textContent = `Called ${v.called.length} of ${POOL}`;
+  const called = new Set(v.called);
+  $("board").innerHTML = RANGES.map(([lo, hi], i) =>
+    `<div class="brow"><span class="bl" data-l="${COLS[i]}">${COLS[i]}</span>` +
+    Array.from({ length: 5 }, (_, k) => { const n = lo + k; return `<span class="bn${n === v.last ? " last" : called.has(n) ? " on" : ""}">${n}</span>`; }).join("") + `</div>`).join("");
+  const hl = c.highlightMask();
+  let h = [...COLS].map(l => `<div class="ch" data-l="${l}">${l}</div>`).join("");
+  for (let r = 0; r < 5; r++) for (let col = 0; col < 5; col++) {
+    const val = c.grid[r][col];
+    h += `<div class="cell${c.marked.has(val) ? " on" : ""}${val === v.last ? " last" : ""}${hl & (1 << (r * 5 + col)) ? " line" : ""}">${val}</div>`;
+  }
+  $("card").innerHTML = h;
+  $("lines").innerHTML = `Lines completed: <b>${c.linesDone}/${v.need}</b>` + (c.linesDone ? " &middot; " + esc(c.completed.join(", ")) : "");
+  $("stand").innerHTML = [...v.standings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([n, d]) =>
+    `<div class="st"><span class="nm${n === me ? " me" : ""}">${esc(n)}</span><span class="bar">${Array.from({ length: v.need }, (_, i) => `<i class="${i < d ? "f" : ""}"></i>`).join("")}</span><span class="muted">${Math.min(d, v.need)}/${v.need}</span></div>`).join("");
+  $("hostctl").hidden = mode === "guest";
+  $("draw-now").disabled = v.state === "over";
+  $("pause").disabled = v.state === "over";
+}
+
+/* ---------- leaving ---------- */
+function leave() {
+  clearTimeout(drawTimer); clearTimeout(joinTimer);
+  if (mode === "host") { broadcast({ type: "closed" }); const p = peer; setTimeout(() => { try { p.destroy(); } catch (_) {} }, 300); }
+  else { try { peer && peer.destroy(); } catch (_) {} }
+  for (const c of conns.values()) { try { setTimeout(() => c.close(), 250); } catch (_) {} }
+  peer = null; hostConn = null; conns = new Map(); game = null; mode = null; paused = false;
+  view = { card: null, called: [], last: null, standings: [], need: DEFAULT_LINES, names: [], bots: [], host: "", state: "lobby" };
+  queue = Promise.resolve(); $("ov").hidden = true; show("menu");
+}
+for (const id of ["leave-l", "leave-g", "ov-leave"]) $(id).onclick = leave;
+window.addEventListener("beforeunload", () => { if (mode === "host") broadcast({ type: "closed" }); });
+</script>
+</body>
+</html>
