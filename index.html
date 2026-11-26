@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
 :root {
   --bg: #000000;
@@ -197,6 +197,26 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
   border: 1px solid var(--border);
 }
 .ctl { display: flex; gap: 8px; margin-top: 14px; justify-content: center; flex-wrap: wrap; }
+
+/* Status Pill */
+.conn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.conn-badge.reconnecting {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--gold);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 
 /* Turn Banner */
 .turn-banner {
@@ -601,7 +621,10 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(148, 
     <div class="cols">
       <div>
         <div class="panel" id="room-info-panel">
-          <div class="h">Room Invite Code</div>
+          <div class="h">
+            <span>Room Invite Code</span>
+            <span id="conn-status" class="conn-badge" hidden><span class="conn-dot"></span><span id="conn-text">Connected</span></span>
+          </div>
           <div class="code" id="l-code"></div>
           <div class="link" id="l-link"></div>
           <div class="ctl">
@@ -703,7 +726,6 @@ const letter = n => COLS[Math.floor((n - 1) / 5)];
 const ball = n => letter(n) + "-" + n;
 
 const PEER_CONFIG = {
-  debug: 1,
   config: {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
@@ -762,7 +784,7 @@ function isValidGrid(grid) {
   for (let r = 0; r < 5; r++) {
     if (!Array.isArray(grid[r]) || grid[r].length !== 5) return false;
     for (let c = 0; c < 5; c++) {
-      const v = grid[r][c];
+      const v = Number(grid[r][c]);
       if (!Number.isInteger(v) || v < 1 || v > 25 || seen.has(v)) return false;
       seen.add(v);
     }
@@ -773,7 +795,7 @@ function isValidGrid(grid) {
 class BingoCard {
   constructor(grid, need = DEFAULT_LINES) {
     this.need = need;
-    this.grid = isValidGrid(grid) ? grid : BingoCard.generate();
+    this.grid = isValidGrid(grid) ? grid.map(r => r.map(Number)) : BingoCard.generate();
     this.pos = new Map();
     for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) this.pos.set(this.grid[r][c], [r, c]);
     this.marked = new Set();
@@ -845,11 +867,15 @@ class BingoGame {
   }
   setPlayerGrid(name, grid) {
     if (isValidGrid(grid)) {
-      this.customGrids.set(name, grid);
+      this.customGrids.set(name, grid.map(r => r.map(Number)));
       this.readyPlayers.add(name);
       return true;
     }
     return false;
+  }
+  unlockPlayerGrid(name) {
+    this.customGrids.delete(name);
+    this.readyPlayers.delete(name);
   }
   start() {
     this.cards = new Map(this.names.map(n => [n, new BingoCard(this.customGrids.get(n), this.need)]));
@@ -915,8 +941,10 @@ const cleanName = s => (s || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(
 let mode = null;
 let me = "", room = "", game = null, peer = null, hostConn = null;
 let conns = new Map();
+let disconnectGraceTimers = new Map();
 let view = { card: null, called: [], last: null, turn: "", standings: [], need: DEFAULT_LINES, maxPlayers: MAX_LIMIT, names: [], bots: [], ready: [], host: "", state: "lobby" };
-let botTimer = null, joinTimer = null, pingTimer = null, queue = Promise.resolve();
+let botTimer = null, joinTimer = null, reconnectTimer = null, pingTimer = null, queue = Promise.resolve();
+let intentionalLeave = false;
 
 let buildGrid = Array.from({ length: 5 }, () => Array(5).fill(0));
 let buildLocked = false;
@@ -942,6 +970,14 @@ function speak(text) {
   if (!$("voice").checked || !("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text); u.rate = 0.95;
   speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+function setConnStatus(state, text) {
+  const badge = $("conn-status");
+  if (!badge) return;
+  if (mode === "solo" || !mode) { badge.hidden = true; return; }
+  badge.hidden = false;
+  badge.classList.toggle("reconnecting", state !== "ok");
+  $("conn-text").textContent = text;
 }
 
 fill("s-bots", [1,2,3,4,5].map(n => [n, `${n} Bot${n > 1 ? "s" : ""}`]), 1);
@@ -1036,19 +1072,35 @@ $("b-lock").onclick = () => {
   if (buildLocked) {
     buildLocked = false;
     renderBuilder();
+    if (mode === "host" || mode === "solo") {
+      game.unlockPlayerGrid(me);
+      if (mode === "host") broadcastLobby();
+      renderLobby();
+    } else if (mode === "guest") {
+      sendToHost({ type: "unlock_grid" });
+    }
     return;
   }
   if (!isValidGrid(buildGrid)) {
     return toast("Fill all 25 tiles (1–25) first, or click Randomize");
   }
-  buildLocked = true;
-  renderBuilder();
-  if (mode === "host" || mode === "solo") {
+  if (mode === "guest") {
+    if (!hostConn || !hostConn.open) {
+      toast("Reconnecting to room before locking board...");
+      reconnectGuest();
+      return;
+    }
+    sendToHost({ type: "set_grid", grid: buildGrid });
+    buildLocked = true;
+    renderBuilder();
+    toast("Board locked!");
+  } else {
+    buildLocked = true;
+    renderBuilder();
     game.setPlayerGrid(me, buildGrid);
     if (mode === "host") broadcastLobby();
     renderLobby();
-  } else if (mode === "guest" && hostConn && hostConn.open) {
-    hostConn.send({ type: "set_grid", grid: buildGrid });
+    toast("Board locked!");
   }
 };
 
@@ -1063,6 +1115,7 @@ function setupGame(prefix) {
 }
 $("go-solo").onclick = () => {
   const n = getName(); if (!n) return;
+  intentionalLeave = false;
   me = n; mode = "solo"; setupGame("s");
   resetBuilder();
   $("room-info-panel").hidden = true;
@@ -1072,9 +1125,11 @@ $("go-solo").onclick = () => {
 $("go-host").onclick = () => {
   const n = getName(); if (!n) return;
   if (typeof Peer === "undefined") return toast("Online rooms need an internet connection (PeerJS did not load).");
+  intentionalLeave = false;
   me = n; mode = "host"; setupGame("h");
   resetBuilder();
   $("room-info-panel").hidden = false;
+  setConnStatus("reconnecting", "Opening room...");
   openHostPeer(0);
 };
 $("go-join").onclick = () => {
@@ -1082,10 +1137,11 @@ $("go-join").onclick = () => {
   const code = $("code").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (code.length !== 5) return toast("Enter the 5-character room code");
   if (typeof Peer === "undefined") return toast("Online rooms need an internet connection (PeerJS did not load).");
+  intentionalLeave = false;
   me = n; mode = "guest"; room = code;
   resetBuilder();
   $("room-info-panel").hidden = false;
-  joinRoom(code, 0);
+  joinRoom(code, 0, false);
 };
 
 /* ---------- HOST & SOLO ---------- */
@@ -1093,22 +1149,27 @@ function openHostPeer(attempt) {
   room = makeCode();
   peer = new Peer(ROOM_PREFIX + room, PEER_CONFIG);
   peer.on("open", () => {
+    setConnStatus("ok", "Room Online");
     show("lobby");
     renderLobby();
     startKeepAlive();
   });
   peer.on("connection", onGuestConnection);
   peer.on("disconnected", () => {
+    if (intentionalLeave) return;
+    setConnStatus("reconnecting", "Reconnecting...");
     if (peer && !peer.destroyed) {
       try { peer.reconnect(); } catch (_) {}
     }
   });
   peer.on("error", e => {
+    if (intentionalLeave) return;
     if (e.type === "unavailable-id" && attempt < 5) {
       try { peer.destroy(); } catch (_) {}
       openHostPeer(attempt + 1);
-    } else if (e.type === "network" || e.type === "server-error") {
-      try { peer.reconnect(); } catch (_) {}
+    } else if (e.type === "network" || e.type === "server-error" || e.type === "socket-error" || e.type === "socket-closed") {
+      setConnStatus("reconnecting", "Reconnecting...");
+      setTimeout(() => { if (peer && !peer.destroyed) try { peer.reconnect(); } catch (_) {} }, 1500);
     } else {
       toast("Connection problem: " + e.type);
       if (mode === "host" && $("lobby").hidden && $("game").hidden) leave();
@@ -1119,12 +1180,20 @@ function openHostPeer(attempt) {
 function startKeepAlive() {
   clearInterval(pingTimer);
   pingTimer = setInterval(() => {
+    if (intentionalLeave) return;
     if (mode === "host") {
       broadcast({ type: "ping" });
-    } else if (mode === "guest" && hostConn && hostConn.open) {
-      try { hostConn.send({ type: "ping" }); } catch (_) {}
+      if (peer && peer.disconnected && !peer.destroyed) {
+        try { peer.reconnect(); } catch (_) {}
+      }
+    } else if (mode === "guest") {
+      if (hostConn && hostConn.open) {
+        try { hostConn.send({ type: "ping" }); } catch (_) {}
+      } else if (room) {
+        reconnectGuest();
+      }
     }
-  }, 8000);
+  }, 5000);
 }
 
 function lobbyMsg() {
@@ -1148,21 +1217,67 @@ function broadcast(msg) {
 function broadcastLobby() { broadcast(lobbyMsg()); }
 
 function onGuestConnection(conn) {
-  const handleData = m => {
+  // Attach listeners immediately (synchronously) so zero packets are missed
+  conn.on("data", m => {
     if (!m || !game) return;
     if (m.type === "ping") return;
+
     if (m.type === "join" && !conn._name) {
       const name = cleanName(m.name);
       const reject = text => {
         try { conn.send({ type: "error", msg: text }); } catch (_) {}
         setTimeout(() => { try { conn.close(); } catch (_) {} }, 500);
       };
+
+      if (!name) return reject("Invalid player name.");
+
+      // Check if this is a seamless reconnect from a player already in the room
+      const existingName = game.names.find(n => n.toLowerCase() === name.toLowerCase());
+      if (existingName && !game.bots.has(existingName) && existingName !== me) {
+        const oldConn = conns.get(existingName);
+        if (!oldConn || !oldConn.open || disconnectGraceTimers.has(existingName)) {
+          clearTimeout(disconnectGraceTimers.get(existingName));
+          disconnectGraceTimers.delete(existingName);
+          conn._name = existingName;
+          conns.set(existingName, conn);
+          if (m.grid && isValidGrid(m.grid)) game.setPlayerGrid(existingName, m.grid);
+
+          if (game.state === "lobby") {
+            try { conn.send({ ...lobbyMsg(), type: "joined", name: existingName, room }); } catch (_) {}
+            broadcastLobby();
+            renderLobby();
+          } else if (game.state === "playing") {
+            const pCard = game.cards.get(existingName);
+            try {
+              conn.send({
+                type: "resume",
+                grid: pCard.grid,
+                marked: [...pCard.marked],
+                called: [...game.called],
+                last: game.called[game.called.length - 1] || null,
+                turn: game.currentTurnPlayer,
+                standings: game.standings(),
+                lines: game.need,
+                names: [...game.names],
+                maxPlayers: game.maxPlayers
+              });
+            } catch (_) {}
+          }
+          return;
+        }
+        return reject("That name is already taken in this room.");
+      }
+
       if (game.state !== "lobby") return reject("A match is already in progress. Try again after this round.");
-      if (!name || game.names.some(n => n.toLowerCase() === name.toLowerCase())) return reject("That name is empty or already taken.");
+      if (existingName) return reject("That name is already taken in this room.");
       if (game.names.length >= game.maxPlayers) return reject(`This room is full (${game.names.length}/${game.maxPlayers} players).`);
+
       conn._name = name;
       conns.set(name, conn);
       game.addPlayer(name);
+      if (m.grid && isValidGrid(m.grid)) {
+        game.setPlayerGrid(name, m.grid);
+      }
       try { conn.send({ ...lobbyMsg(), type: "joined", name, room }); } catch (_) {}
       broadcastLobby();
       renderLobby();
@@ -1170,25 +1285,36 @@ function onGuestConnection(conn) {
     } else if (conn._name) {
       handlePlayerAction(conn._name, m);
     }
-  };
+  });
 
-  conn.on("data", handleData);
   conn.on("error", err => console.warn("Guest conn error:", err));
+
   conn.on("close", () => {
     if (!conn._name || conns.get(conn._name) !== conn) return;
     const leftName = conn._name;
     conns.delete(leftName);
-    if (game && game.state === "lobby") {
-      game.removePlayer(leftName); broadcastLobby(); renderLobby();
-    } else if (game && game.state === "playing") {
-      toast(leftName + " disconnected");
-      if (game.currentTurnPlayer === leftName) {
-        game.turnIdx = (game.turnIdx + 1) % game.names.length;
-        broadcastState();
-        enqueue(() => syncLocalViewFromGame());
-        checkBotTurn();
+
+    // Give 10 seconds grace period so brief mobile/Wi-Fi blips reconnect cleanly
+    clearTimeout(disconnectGraceTimers.get(leftName));
+    const timer = setTimeout(() => {
+      disconnectGraceTimers.delete(leftName);
+      if (conns.has(leftName) || !game) return;
+      if (game.state === "lobby") {
+        game.removePlayer(leftName);
+        broadcastLobby();
+        renderLobby();
+        toast(`${leftName} left the lobby`);
+      } else if (game.state === "playing") {
+        toast(`${leftName} disconnected`);
+        if (game.currentTurnPlayer === leftName) {
+          game.turnIdx = (game.turnIdx + 1) % game.names.length;
+          broadcastState();
+          enqueue(() => syncLocalViewFromGame());
+          checkBotTurn();
+        }
       }
-    }
+    }, 10000);
+    disconnectGraceTimers.set(leftName, timer);
   });
 }
 
@@ -1199,6 +1325,10 @@ function handlePlayerAction(playerName, m) {
       broadcastLobby();
       renderLobby();
     }
+  } else if (m.type === "unlock_grid" && game.state === "lobby") {
+    game.unlockPlayerGrid(playerName);
+    broadcastLobby();
+    renderLobby();
   } else if (m.type === "announce" && game.state === "playing") {
     const res = game.announceNumber(playerName, Number(m.number));
     if (res.ok) {
@@ -1379,18 +1509,43 @@ function playAgain() {
 $("again").onclick = playAgain;
 
 /* ---------- GUEST ---------- */
-function joinRoom(code, attempt = 0) {
-  if (attempt === 0) toast("Connecting to room " + code + "...");
+function sendToHost(msg) {
+  if (hostConn && hostConn.open) {
+    try {
+      hostConn.send(msg);
+      return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+function reconnectGuest() {
+  if (intentionalLeave || mode !== "guest" || !room) return;
+  clearTimeout(reconnectTimer);
+  setConnStatus("reconnecting", "Reconnecting...");
+  reconnectTimer = setTimeout(() => {
+    if (!intentionalLeave && mode === "guest" && (!hostConn || !hostConn.open)) {
+      joinRoom(room, 0, true);
+    }
+  }, 1200);
+}
+
+function joinRoom(code, attempt = 0, isReconnect = false) {
+  if (!isReconnect && attempt === 0) toast("Connecting to room " + code + "...");
+  setConnStatus("reconnecting", isReconnect ? "Reconnecting..." : "Connecting...");
+
+  try { if (hostConn) hostConn.close(); } catch (_) {}
   try { if (peer) peer.destroy(); } catch (_) {}
 
   peer = new Peer(PEER_CONFIG);
   let connected = false;
 
+  clearTimeout(joinTimer);
   joinTimer = setTimeout(() => {
-    if (!connected && mode === "guest") {
-      if (attempt < 1) {
+    if (!connected && mode === "guest" && !intentionalLeave) {
+      if (attempt < 2) {
         toast("Connection slow, retrying...");
-        joinRoom(code, attempt + 1);
+        joinRoom(code, attempt + 1, isReconnect);
       } else {
         toast("Could not reach the room. Check the code or network and try again.");
         leave();
@@ -1399,39 +1554,55 @@ function joinRoom(code, attempt = 0) {
   }, 20000);
 
   peer.on("open", () => {
-    hostConn = peer.connect(ROOM_PREFIX + code, { reliable: true, serialization: "json" });
+    if (intentionalLeave) return;
+    // Use default reliable BinaryPack serialization so large grid arrays never drop
+    hostConn = peer.connect(ROOM_PREFIX + code, { reliable: true });
+
     hostConn.on("open", () => {
       connected = true;
       clearTimeout(joinTimer);
-      hostConn.send({ type: "join", name: me });
+      setConnStatus("ok", "Connected");
+      hostConn.send({
+        type: "join",
+        name: me,
+        grid: buildLocked ? buildGrid : null
+      });
       startKeepAlive();
     });
+
     hostConn.on("data", onHostMsg);
+
     hostConn.on("close", () => {
       clearTimeout(joinTimer);
-      if (mode === "guest") {
-        toast("Disconnected from the host.");
-        leave();
+      if (!intentionalLeave && mode === "guest") {
+        reconnectGuest();
       }
     });
+
     hostConn.on("error", err => {
       console.warn("Host conn error:", err);
+      if (!intentionalLeave && mode === "guest") {
+        reconnectGuest();
+      }
     });
   });
 
   peer.on("disconnected", () => {
+    if (intentionalLeave) return;
+    setConnStatus("reconnecting", "Reconnecting...");
     if (peer && !peer.destroyed) {
       try { peer.reconnect(); } catch (_) {}
     }
   });
 
   peer.on("error", e => {
+    if (intentionalLeave) return;
     clearTimeout(joinTimer);
     if (e.type === "peer-unavailable") {
-      toast("Room not found. Check the code, or ask the host to open it.");
+      toast("Room not found or host closed the room.");
       leave();
-    } else if (!connected && attempt < 1 && mode === "guest") {
-      joinRoom(code, attempt + 1);
+    } else if (attempt < 2 && mode === "guest") {
+      setTimeout(() => joinRoom(code, attempt + 1, isReconnect), 1500);
     } else {
       toast("Connection problem: " + e.type);
       if (!view.names.length) leave();
@@ -1442,12 +1613,17 @@ function joinRoom(code, attempt = 0) {
 function onHostMsg(m) {
   if (!m || m.type === "ping") return;
   switch (m.type) {
-    case "error": toast(m.msg); leave(); break;
+    case "error":
+      intentionalLeave = true;
+      toast(m.msg);
+      leave();
+      break;
     case "joined":
       me = m.name; room = m.room;
+      setConnStatus("ok", "Connected");
       Object.assign(view, { names: m.players, bots: m.bots, ready: m.ready || [], host: m.host, need: m.lines, maxPlayers: m.maxPlayers || MAX_LIMIT, state: "lobby" });
       if (buildLocked) {
-        try { hostConn.send({ type: "set_grid", grid: buildGrid }); } catch (_) {}
+        sendToHost({ type: "set_grid", grid: buildGrid });
       }
       renderLobby(); show("lobby"); break;
     case "lobby":
@@ -1475,6 +1651,27 @@ function onHostMsg(m) {
         };
         $("ov").hidden = true; show("game"); setBall(null); renderGame();
       }); break;
+    case "resume":
+      enqueue(() => {
+        const restoredCard = new BingoCard(m.grid, m.lines);
+        for (const num of (m.marked || [])) restoredCard.mark(num);
+        view = {
+          card: restoredCard,
+          called: m.called,
+          last: m.last,
+          turn: m.turn,
+          standings: m.standings,
+          need: m.lines,
+          maxPlayers: m.maxPlayers || view.maxPlayers,
+          names: m.names,
+          bots: view.bots,
+          ready: view.ready,
+          host: view.host,
+          state: "playing"
+        };
+        $("ov").hidden = true; show("game"); setBall(m.last); renderGame();
+        toast("Reconnected to match!");
+      }); break;
     case "announced": enqueue(() => applyAnnounced(m)); break;
     case "sync": enqueue(() => {
       view.called = m.called;
@@ -1483,9 +1680,24 @@ function onHostMsg(m) {
       renderGame();
     }); break;
     case "bingo": enqueue(() => applyBingo(m)); break;
-    case "closed": toast("The host closed the room."); leave(); break;
+    case "closed":
+      intentionalLeave = true;
+      toast("The host closed the room.");
+      leave();
+      break;
   }
 }
+
+// Automatically reconnect if mobile user switches apps and comes back
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !intentionalLeave) {
+    if (mode === "guest" && (!hostConn || !hostConn.open)) {
+      reconnectGuest();
+    } else if (mode === "host" && peer && peer.disconnected && !peer.destroyed) {
+      try { peer.reconnect(); } catch (_) {}
+    }
+  }
+});
 
 /* ---------- Player Actions ---------- */
 function selectNumberToAnnounce(n) {
@@ -1495,8 +1707,11 @@ function selectNumberToAnnounce(n) {
 
   if (mode === "host" || mode === "solo") {
     handlePlayerAction(me, { type: "announce", number: n });
-  } else if (mode === "guest" && hostConn && hostConn.open) {
-    hostConn.send({ type: "announce", number: n });
+  } else if (mode === "guest") {
+    if (!sendToHost({ type: "announce", number: n })) {
+      toast("Reconnecting to room...");
+      reconnectGuest();
+    }
   }
 }
 
@@ -1513,8 +1728,8 @@ function toggleMarkCell(n, cellEl) {
   view.card.mark(n);
   if (mode === "host" || mode === "solo") {
     handlePlayerAction(me, { type: "mark", number: n });
-  } else if (mode === "guest" && hostConn && hostConn.open) {
-    hostConn.send({ type: "mark", number: n });
+  } else if (mode === "guest") {
+    sendToHost({ type: "mark", number: n });
     renderGame();
   }
 }
@@ -1523,8 +1738,11 @@ $("claim-bingo").onclick = () => {
   if (view.state !== "playing" || !view.card || !view.card.hasBingo()) return;
   if (mode === "host" || mode === "solo") {
     handlePlayerAction(me, { type: "claim_bingo" });
-  } else if (mode === "guest" && hostConn && hostConn.open) {
-    hostConn.send({ type: "claim_bingo" });
+  } else if (mode === "guest") {
+    if (!sendToHost({ type: "claim_bingo" })) {
+      toast("Reconnecting to room...");
+      reconnectGuest();
+    }
   }
 };
 
@@ -1580,13 +1798,11 @@ function renderLobby() {
   $("l-count").textContent = `(${names.length}/${maxP})`;
   $("l-need").textContent = `Goal: ${need} lines`;
 
-  // Room capacity dropdown in lobby (host only)
   $("l-cap-bar").hidden = mode !== "host";
   if (mode === "host") {
     fill("l-max", [2,3,4,5,6].map(n => [n, `${n} Players${n < names.length ? " (too small)" : ""}`]), maxP);
   }
 
-  // Render occupied slots + empty open seat indicators
   const filledPills = names.map(n =>
     `<span class="pl">${ready.has(n) ? '<span class="ready-dot" title="Board locked"></span>' : ''}${esc(n)}${n === host && mode !== "solo" ? " <small>Host</small>" : ""}${bots.has(n) ? " <small>Bot</small>" : ""}${n === me ? " <small>You</small>" : ""}</span>`
   );
@@ -1673,16 +1889,29 @@ function renderGame() {
 }
 
 function leave() {
-  clearTimeout(botTimer); clearTimeout(joinTimer); clearInterval(pingTimer);
-  if (mode === "host") { broadcast({ type: "closed" }); const p = peer; setTimeout(() => { try { p.destroy(); } catch (_) {} }, 300); }
-  else { try { peer && peer.destroy(); } catch (_) {} }
+  intentionalLeave = true;
+  clearTimeout(botTimer); clearTimeout(joinTimer); clearTimeout(reconnectTimer); clearInterval(pingTimer);
+  for (const t of disconnectGraceTimers.values()) clearTimeout(t);
+  disconnectGraceTimers.clear();
+
+  if (mode === "host") {
+    broadcast({ type: "closed" });
+    const p = peer;
+    setTimeout(() => { try { p && p.destroy(); } catch (_) {} }, 300);
+  } else {
+    try { hostConn && hostConn.close(); } catch (_) {}
+    try { peer && peer.destroy(); } catch (_) {}
+  }
   for (const c of conns.values()) { try { setTimeout(() => c.close(), 250); } catch (_) {} }
   peer = null; hostConn = null; conns = new Map(); game = null; mode = null;
   view = { card: null, called: [], last: null, turn: "", standings: [], need: DEFAULT_LINES, maxPlayers: MAX_LIMIT, names: [], bots: [], ready: [], host: "", state: "lobby" };
   queue = Promise.resolve(); $("ov").hidden = true; show("menu");
 }
 for (const id of ["leave-l", "leave-g", "ov-leave"]) $(id).onclick = leave;
-window.addEventListener("beforeunload", () => { if (mode === "host") broadcast({ type: "closed" }); });
+window.addEventListener("beforeunload", () => {
+  intentionalLeave = true;
+  if (mode === "host") broadcast({ type: "closed" });
+});
 </script>
 </body>
 </html>
